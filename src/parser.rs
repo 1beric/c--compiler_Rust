@@ -8,16 +8,10 @@
  *
  */
 
-use lazy_static::lazy_static;
-use std::sync::Mutex;
 
 use crate::error;
 use crate::scanner;
 use crate::scanner::Token;
-
-lazy_static! {
-    // static ref token: Mutex<Token> = Mutex::new(Token::UNDEF);
-}
 
 pub fn parse() {
     let mut token = scanner::get_token();
@@ -69,7 +63,7 @@ fn match_token(token: &mut Token, to_match: Token) {
                     *token = scanner::get_token();
                     return;
                 }
-                _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "match_token 1"),
+                _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "match_token"),
             }
         }
         Token::INTCONST(_) => {
@@ -79,7 +73,7 @@ fn match_token(token: &mut Token, to_match: Token) {
                     *token = scanner::get_token();
                     return;
                 }
-                _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "match_token 2"),
+                _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "match_token"),
             }
         }
         _ => {
@@ -88,8 +82,7 @@ fn match_token(token: &mut Token, to_match: Token) {
                 *token = scanner::get_token();
                 return;
             }
-            println!("{:?} {:?}", *token, to_match);
-            error::print_err_rule(*scanner::line.lock().unwrap(), token, "match_token 3");
+            error::print_err_rule(*scanner::line.lock().unwrap(), token, "match_token");
         }
     }
 }

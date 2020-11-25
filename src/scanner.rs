@@ -25,12 +25,12 @@ pub fn init(file: &String) {
     {
         contents.lock().unwrap().push(c);
     }
-    println!("file is as follows:\n");
-    let chars = contents.lock().unwrap();
-    for i in 0..chars.len() {
-        print!("{}", chars[i as usize]);
-    }
-    print!("\n");
+    // println!("file is as follows:\n");
+    // let chars = contents.lock().unwrap();
+    // for i in 0..chars.len() {
+    //     print!("{}", chars[i as usize]);
+    // }
+    // print!("\n");
 }
 
 pub fn reset_file() {
