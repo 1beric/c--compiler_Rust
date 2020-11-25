@@ -19,9 +19,8 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     scanner::init(&args[1]);
-    parser::print_tokens();
-    println!();
-    parser::print_tokens();
+
+    parser::parse();
 }
 
 // use lazy_static::lazy_static; // 1.4.0

@@ -15,7 +15,7 @@ use crate::error;
 lazy_static! {
     static ref contents: Mutex<Vec<char>> = Mutex::new(Vec::new());
     static ref offset: Mutex<i32> = Mutex::new(0);
-    static ref line: Mutex<i32> = Mutex::new(1);
+    pub static ref line: Mutex<i32> = Mutex::new(1);
 }
 
 pub fn init(file: &String) {
@@ -64,21 +64,21 @@ pub fn get_token() -> Token {
         '|' => {
             curr = next_char(false);
             if curr != '|' {
-                error::print_err(*line.lock().unwrap(), curr);
+                error::print_err_ch(*line.lock().unwrap(), curr);
             }
             return Token::BOOL(String::from("||"));
         }
         '&' => {
             curr = next_char(false);
             if curr != '&' {
-                error::print_err(*line.lock().unwrap(), curr);
+                error::print_err_ch(*line.lock().unwrap(), curr);
             }
             return Token::BOOL(String::from("&&"));
         }
         '!' => {
             curr = next_char(false);
             if curr != '=' {
-                error::print_err(*line.lock().unwrap(), curr);
+                error::print_err_ch(*line.lock().unwrap(), curr);
             }
             return Token::BOOL(String::from("!="));
         }
@@ -140,6 +140,10 @@ fn match_kw(curr: &mut char) -> Token {
             match *curr {
                 'f' => {
                     sofar.push(*curr);
+                    *curr = peek_char();
+                    if (*curr).is_alphanumeric() || *curr == '_' {
+                        return match_id(&mut sofar);
+                    }
                     return Token::KW(sofar);
                 }
                 'n' => {
@@ -150,6 +154,10 @@ fn match_kw(curr: &mut char) -> Token {
                         return match_id(&mut sofar);
                     }
                     sofar.push(*curr);
+                    *curr = peek_char();
+                    if (*curr).is_alphanumeric() || *curr == '_' {
+                        return match_id(&mut sofar);
+                    }
                     return Token::KW(sofar);
                 }
                 _ => {
@@ -177,7 +185,10 @@ fn match_kw(curr: &mut char) -> Token {
                 return match_id(&mut sofar);
             }
             sofar.push(*curr);
-
+            *curr = peek_char();
+            if (*curr).is_alphanumeric() || *curr == '_' {
+                return match_id(&mut sofar);
+            }
             return Token::KW(sofar);
         }
         'r' => {
@@ -211,7 +222,10 @@ fn match_kw(curr: &mut char) -> Token {
                 return match_id(&mut sofar);
             }
             sofar.push(*curr);
-
+            *curr = peek_char();
+            if (*curr).is_alphanumeric() || *curr == '_' {
+                return match_id(&mut sofar);
+            }
             return Token::KW(sofar);
         }
         'w' => {
@@ -239,7 +253,10 @@ fn match_kw(curr: &mut char) -> Token {
                 return match_id(&mut sofar);
             }
             sofar.push(*curr);
-
+            *curr = peek_char();
+            if (*curr).is_alphanumeric() || *curr == '_' {
+                return match_id(&mut sofar);
+            }
             return Token::KW(sofar);
         }
         _ => {
@@ -276,7 +293,7 @@ fn is_comment(curr: &mut char) -> bool {
     if *curr == '/' {
         *curr = next_char(false);
         if *curr == '*' {
-            println!("block comment");
+            // println!("block comment");
             loop {
                 *curr = next_char(false);
                 while *curr == '*' {
@@ -287,7 +304,7 @@ fn is_comment(curr: &mut char) -> bool {
                 }
             }
         } else if *curr == '/' {
-            println!("line comment");
+            // println!("line comment");
             *curr = next_char(false);
             while *curr != '\n' {
                 *curr = next_char(false);
@@ -330,6 +347,13 @@ fn next_char(eof_valid: bool) -> char {
         *l = *l + 1;
     }
     out
+}
+
+fn peek_char() -> char {
+    if contents.lock().unwrap().len() == *(offset.lock().unwrap()) as usize {
+        error::print_eof();
+    }
+    contents.lock().unwrap()[FA_offset(0)]
 }
 
 fn FA_offset(off: i32) -> usize {

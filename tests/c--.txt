@@ -1,0 +1,139 @@
+/*
+ * File: c--.txt
+ * Author: Saumya Debray
+ * Purpose: Provides the grammar for the G0 language subset in a form
+ *          suitable for input to the gff FIRST/FOLLOW computation tool.
+ */
+
+%token ID kwINT LPAREN RPAREN LBRACE RBRACE SEMI COMMA kwIF kwWHILE kwRETURN opASSG kwELSE INTCON opEQ opNE opLE opLT opGE opGT opAND opOR opADD opSUB opMUL opDIV
+
+%start prog
+%%
+
+prog : type ID func_var prog
+     | /* epsilon */
+    ;
+
+func_var : var_decl
+         | func_defn
+    ;
+
+var_decl : SEMI
+    | COMMA ID var_decl
+    ;
+     
+type : kwINT
+    ;
+
+func_defn : LPAREN opt_formals RPAREN LBRACE opt_var_decls opt_stmt_list RBRACE
+    ;
+
+opt_formals : type ID formals
+            | /* epsilon */
+    ;
+
+formals : COMMA opt_formals
+        | /* epsilon */
+    ;
+
+opt_var_decls : /* epsilon */
+              | type ID var_decl opt_var_decls
+    ;
+
+opt_stmt_list : stmt opt_stmt_list
+    | /* epsilon */
+    ;
+
+stmt : ID fn_or_assg SEMI
+     | while_stmt
+     | if_stmt
+     | return_stmt
+     | LBRACE opt_stmt_list RBRACE
+     | SEMI
+    ;
+
+fn_or_assg : assg_stmt
+    | fn_call
+    ;
+
+if_stmt : kwIF LPAREN or_exp RPAREN stmt opt_else
+    ;
+
+opt_else : kwELSE stmt
+    | /* epsilon */
+    ;
+
+while_stmt : kwWHILE LPAREN or_exp RPAREN stmt
+    ;
+
+return_stmt : kwRETURN opt_arith_exp SEMI
+    ;
+
+assg_stmt : opASSG addsub_exp
+    ;
+
+opt_fn_call : fn_call
+            | /* epsilon */
+    ;
+
+fn_call : LPAREN opt_expr_list RPAREN
+    ;
+
+opt_expr_list : /* epsilon */
+              | addsub_exp expr_list
+    ;
+
+expr_list : COMMA addsub_exp expr_list
+          | /* epsilon */
+    ;
+
+or_exp : and_exp or_no_lr
+    ;
+
+or_no_lr : opOR and_exp or_no_lr
+       | /* epsilon */
+    ;
+
+and_exp : bool_exp and_no_lr
+    ;
+
+and_no_lr : opAND bool_exp and_no_lr
+        | /* epsilon */
+    ;
+
+bool_exp : addsub_exp relop addsub_exp
+    ;
+
+opt_arith_exp : addsub_exp
+    | /* epsilon */
+    ;
+
+addsub_exp : muldiv_exp addsub_no_lr
+    ;
+
+addsub_no_lr : opADD muldiv_exp addsub_no_lr
+             | opSUB muldiv_exp addsub_no_lr
+             | /* epsilon */
+    ;
+
+muldiv_exp : arith_exp muldiv_no_lr
+    ;
+
+muldiv_no_lr : opMUL arith_exp muldiv_no_lr
+             | opDIV arith_exp muldiv_no_lr
+             | /* epsilon */
+    ;
+
+arith_exp : ID opt_fn_call
+          | INTCON
+ 	      |	LPAREN addsub_exp RPAREN
+ 	      |	opSUB arith_exp
+    ;
+
+relop : opEQ
+      | opNE
+      | opLE
+      | opLT
+      | opGE
+      | opGT
+    ;
