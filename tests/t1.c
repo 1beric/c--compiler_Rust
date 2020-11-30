@@ -19,7 +19,7 @@ int b(int banana, int pear)
     else if (banana > pear)
         println(banana - pear);
     else if (pear == banana && (pear - banana) == 0)
-        println(-1);
+        println(neg1());
     wow();
     return (a(banana) * pear) / 2;
 }
@@ -34,6 +34,7 @@ int main()
     else_ = 5;
     while (int_ > 0 && else_ < 15)
     {
+        b(int_, else_);
         int_ = int_ + neg1();
         else_ = else_ - neg1();
     }

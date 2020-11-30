@@ -11,10 +11,10 @@
 use lazy_static::lazy_static; // 1.4.0
 use std::sync::Mutex;
 
+use crate::ast::ASTNode;
 use crate::error;
 use crate::scanner;
 use crate::scanner::Token;
-// use crate::symbol_table;
 use crate::symbol_table::SymbolTable;
 
 lazy_static! {
@@ -31,7 +31,11 @@ pub fn parse() {
             .add_function(&mut String::from("println"), &mut 1);
     }
 
-    prog(&mut token);
+    let mut root = prog(&mut token);
+
+    if *super::print_ast.lock().unwrap() {
+        root.print();
+    }
 
     println!("finished!");
 }
@@ -108,9 +112,9 @@ fn match_token(token: &mut Token, to_match: Token) -> Token {
     }
 }
 
-fn prog(token: &mut Token) {
+fn prog<'a>(token: &mut Token) -> ASTNode<'a> {
     if *token == Token::EOF {
-        return;
+        return ASTNode::NULL;
     }
 
     match token {
@@ -127,14 +131,19 @@ fn prog(token: &mut Token) {
                 _ => id = String::new(),
             }
 
-            func_var(token, &mut id);
-            prog(token);
+            let head = func_var(token, &mut id);
+            let next = prog(token);
+            if head == ASTNode::NULL {
+                return next;
+            }
+            return ASTNode::new_FUNC_LIST(head, next);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "prog"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
-fn func_var(token: &mut Token, id: &mut String) {
+fn func_var<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     match *token {
         Token::SEMI | Token::COMMA => {
             if *super::chk_decl.lock().unwrap() && symbols.lock().unwrap().global_var_def(id) {
@@ -145,14 +154,14 @@ fn func_var(token: &mut Token, id: &mut String) {
                 symbols.lock().unwrap().add_global(id);
             }
             var_decl(token, true);
-            return;
+            return ASTNode::NULL;
         }
         Token::LPAREN => {
-            func_defn(token, id);
-            return;
+            return func_defn(token, id);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "func_var"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
 fn var_decl(token: &mut Token, global: bool) {
@@ -210,7 +219,7 @@ fn mtype(token: &mut Token) {
     match_token(token, Token::KW(String::from("int")));
 }
 
-fn func_defn(token: &mut Token, id: &mut String) {
+fn func_defn<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     match *token {
         Token::LPAREN => {
             match_token(token, Token::LPAREN);
@@ -231,18 +240,19 @@ fn func_defn(token: &mut Token, id: &mut String) {
                     .unwrap()
                     .add_function(id, &mut (params.len() as u32));
             }
-            for mut param in params {
+            for mut param in params.clone() {
                 symbols.lock().unwrap().add_param(&mut param);
             }
             match_token(token, Token::RPAREN);
             match_token(token, Token::LBRACE);
             opt_var_decls(token);
-            opt_stmt_list(token);
+            let body = opt_stmt_list(token);
             match_token(token, Token::RBRACE);
-            return;
+            return ASTNode::new_FUNC_DEFN(id.clone(), params, body);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "func_defn"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
 fn opt_formals(token: &mut Token, params: &mut Vec<String>) {
@@ -321,68 +331,73 @@ fn opt_var_decls(token: &mut Token) {
     }
 }
 
-fn opt_stmt_list(token: &mut Token) {
+fn opt_stmt_list<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::LBRACE | Token::SEMI => {
-            stmt(token);
-            opt_stmt_list(token);
-            return;
+            let head = stmt(token);
+            let next = opt_stmt_list(token);
+            if head == ASTNode::NULL {
+                return next;
+            }
+            return ASTNode::new_STMT_LIST(head, next);
         }
         Token::KW(kw) => {
             if *kw == String::from("return")
                 || *kw == String::from("while")
                 || *kw == String::from("if")
             {
-                stmt(token);
-                opt_stmt_list(token);
-                return;
+                let head = stmt(token);
+                let next = opt_stmt_list(token);
+                if head == ASTNode::NULL {
+                    return next;
+                }
+                return ASTNode::new_STMT_LIST(head, next);
             }
             error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_stmt_list");
         }
-        Token::RBRACE => return,
+        Token::RBRACE => return ASTNode::NULL,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_stmt_list"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
-fn stmt(token: &mut Token) {
+fn stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
-        Token::ID(_) => {
-            match match_token(token, Token::ID(String::new())) {
-                Token::ID(mut s) => {
-                    fn_or_assg(token, &mut s);
-                }
-                _ => std::process::exit(1),
+        Token::ID(_) => match match_token(token, Token::ID(String::new())) {
+            Token::ID(mut s) => {
+                let node = fn_or_assg(token, &mut s);
+                match_token(token, Token::SEMI);
+                return node;
             }
-            match_token(token, Token::SEMI);
-            return;
-        }
+            _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "stmt"),
+        },
         Token::KW(kw) => {
             if *kw == String::from("return") {
-                return_stmt(token);
+                return return_stmt(token);
             } else if *kw == String::from("while") {
-                while_stmt(token);
+                return while_stmt(token);
             } else if *kw == String::from("if") {
-                if_stmt(token);
+                return if_stmt(token);
             } else {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "stmt");
             }
-            return;
         }
         Token::LBRACE => {
             match_token(token, Token::LBRACE);
-            opt_stmt_list(token);
+            let list = opt_stmt_list(token);
             match_token(token, Token::RBRACE);
-            return;
+            return list;
         }
         Token::SEMI => {
             match_token(token, Token::SEMI);
-            return;
+            return ASTNode::NULL;
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "stmt"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
-fn fn_or_assg(token: &mut Token, id: &mut String) {
+fn fn_or_assg<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     match *token {
         Token::ASSG => {
             {
@@ -395,18 +410,17 @@ fn fn_or_assg(token: &mut Token, id: &mut String) {
                     error::print_err_rule(*scanner::line.lock().unwrap(), token, "fn_or_assg");
                 }
             }
-            assg_stmt(token);
-            return;
+            return assg_stmt(token, id.clone());
         }
         Token::LPAREN => {
-            fn_call(token, id);
-            return;
+            return fn_call(token, id);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "fn_or_assg"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
-fn if_stmt(token: &mut Token) {
+fn if_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::KW(kw) => {
             if *kw != String::from("if") {
@@ -414,38 +428,39 @@ fn if_stmt(token: &mut Token) {
             }
             match_token(token, Token::KW(String::from("if")));
             match_token(token, Token::LPAREN);
-            or_exp(token);
+            let condition = or_exp(token);
             match_token(token, Token::RPAREN);
-            stmt(token);
-            opt_else(token);
-            return;
+            let then_stmt = stmt(token);
+            let else_stmt = opt_else(token);
+            return ASTNode::new_IF(condition, then_stmt, else_stmt);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "if_stmt"),
     }
+    return ASTNode::NULL;
 }
 
-fn opt_else(token: &mut Token) {
+fn opt_else<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::KW(kw) => {
             if *kw == String::from("if")
                 || *kw == String::from("return")
                 || *kw == String::from("while")
             {
-                return;
+                return ASTNode::NULL;
             }
             if *kw != String::from("else") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_else");
             }
             match_token(token, Token::KW(String::from("else")));
-            stmt(token);
-            return;
+            return stmt(token);
         }
-        Token::ID(_) | Token::LBRACE | Token::SEMI | Token::RBRACE => return,
+        Token::ID(_) | Token::LBRACE | Token::SEMI | Token::RBRACE => return ASTNode::NULL,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_else"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
-fn while_stmt(token: &mut Token) {
+fn while_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::KW(kw) => {
             if *kw != String::from("while") {
@@ -453,57 +468,62 @@ fn while_stmt(token: &mut Token) {
             }
             match_token(token, Token::KW(String::from("while")));
             match_token(token, Token::LPAREN);
-            or_exp(token);
+            let condition = or_exp(token);
             match_token(token, Token::RPAREN);
-            stmt(token);
-            return;
+            let body = stmt(token);
+            return ASTNode::new_WHILE(condition, body);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "while_stmt"),
     }
+    return ASTNode::NULL;
 }
 
-fn return_stmt(token: &mut Token) {
+fn return_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::KW(kw) => {
             if *kw != String::from("return") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "return_stmt");
             }
             match_token(token, Token::KW(String::from("return")));
-            opt_arith_exp(token);
+            let expr = opt_arith_exp(token);
             match_token(token, Token::SEMI);
+            return ASTNode::new_RETURN(expr);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "return_stmt"),
     }
+    return ASTNode::NULL;
 }
 
-fn assg_stmt(token: &mut Token) {
+fn assg_stmt<'a>(token: &mut Token, id: String) -> ASTNode<'a> {
     match *token {
         Token::ASSG => {
             match_token(token, Token::ASSG);
-            addsub_exp(token);
-            return;
+            return ASTNode::new_ASSG(id, addsub_exp(token));
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "assg_stmt"),
     }
+    return ASTNode::NULL;
 }
 
-fn opt_fn_call(token: &mut Token, id: &mut String) {
+fn opt_fn_call<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     match *token {
         Token::LPAREN => {
-            fn_call(token, id);
-            return;
+            return fn_call(token, id);
         }
-        Token::ARITH(_) | Token::BOOL(_) | Token::RPAREN | Token::COMMA | Token::SEMI => return,
+        Token::ARITH(_) | Token::BOOL(_) | Token::RPAREN | Token::COMMA | Token::SEMI => {
+            return ASTNode::new_ID(id.clone());
+        }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_fn_call"),
     }
+    return ASTNode::new_ID(id.clone());
 }
 
-fn fn_call(token: &mut Token, id: &mut String) {
+fn fn_call<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     match *token {
         Token::LPAREN => {
             match_token(token, Token::LPAREN);
             let mut nargs = 0;
-            opt_expr_list(token, &mut nargs);
+            let args = opt_expr_list(token, &mut nargs);
             if *super::chk_decl.lock().unwrap()
                 && !symbols.lock().unwrap().function_def(id, &mut nargs)
             {
@@ -514,178 +534,181 @@ fn fn_call(token: &mut Token, id: &mut String) {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "fn_call");
             }
             match_token(token, Token::RPAREN);
-            return;
+            return ASTNode::new_FUNC_CALL(id.clone(), args);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "fn_call"),
     }
+    return ASTNode::NULL;
 }
 
-fn opt_expr_list(token: &mut Token, nargs: &mut u32) {
+fn opt_expr_list<'a>(token: &mut Token, nargs: &mut u32) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
-            addsub_exp(token);
+            let head = addsub_exp(token);
             *nargs = *nargs + 1;
-            expr_list(token, nargs);
-            return;
+            let next = expr_list(token, nargs);
+            return ASTNode::new_EXPR_LIST(head, next);
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_expr_list");
             }
-            addsub_exp(token);
+            let head = addsub_exp(token);
             *nargs = *nargs + 1;
-            expr_list(token, nargs);
-            return;
+            let next = expr_list(token, nargs);
+            return ASTNode::new_EXPR_LIST(head, next);
         }
-        Token::RPAREN => return,
+        Token::RPAREN => return ASTNode::NULL,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_expr_list"),
     }
+    return ASTNode::NULL;
 }
 
-fn expr_list(token: &mut Token, nargs: &mut u32) {
+fn expr_list<'a>(token: &mut Token, nargs: &mut u32) -> ASTNode<'a> {
     match *token {
         Token::COMMA => {
             match_token(token, Token::COMMA);
-            addsub_exp(token);
+            let head = addsub_exp(token);
             *nargs = *nargs + 1;
-            expr_list(token, nargs);
-            return;
+            let next = expr_list(token, nargs);
+            return ASTNode::new_EXPR_LIST(head, next);
         }
-        Token::RPAREN => return,
+        Token::RPAREN => return ASTNode::NULL,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "expr_list"),
     }
+    return ASTNode::NULL;
 }
 
-fn or_exp(token: &mut Token) {
+fn or_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
-            and_exp(token);
-            or_no_lr(token);
-            return;
+            let left = and_exp(token);
+            return or_no_lr(token, left);
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "or_exp");
             }
-            and_exp(token);
-            or_no_lr(token);
-            return;
+            let left = and_exp(token);
+            return or_no_lr(token, left);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "or_exp"),
     }
+    return ASTNode::NULL;
 }
 
-fn or_no_lr(token: &mut Token) {
+fn or_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
     match token {
         Token::BOOL(bl) => {
             if *bl != String::from("||") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "or_no_lr");
             }
             match_token(token, Token::BOOL(String::from("||")));
-            and_exp(token);
-            or_no_lr(token);
-            return;
+            let and_expr = and_exp(token);
+            return or_no_lr(token, ASTNode::new_BOOL(String::from("||"), left, and_expr));
         }
-        Token::RPAREN => return,
+        Token::RPAREN => return left,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "or_no_lr"),
     }
+    return left;
 }
 
-fn and_exp(token: &mut Token) {
+fn and_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
-            bool_exp(token);
-            and_no_lr(token);
-            return;
+            let bool_expr = bool_exp(token);
+            return and_no_lr(token, bool_expr);
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "and_exp");
             }
-            bool_exp(token);
-            and_no_lr(token);
-            return;
+            let bool_expr = bool_exp(token);
+            return and_no_lr(token, bool_expr);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "and_exp"),
     }
+    return ASTNode::NULL;
 }
 
-fn and_no_lr(token: &mut Token) {
+fn and_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
     match token {
         Token::BOOL(bl) => {
             if *bl != String::from("&&") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "and_no_lr");
             }
             match_token(token, Token::BOOL(String::from("&&")));
-            bool_exp(token);
-            and_no_lr(token);
-            return;
+            let bool_expr = bool_exp(token);
+            return and_no_lr(
+                token,
+                ASTNode::new_BOOL(String::from("&&"), left, bool_expr),
+            );
         }
-        Token::RPAREN => return,
+        Token::RPAREN => return left,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "and_no_lr"),
     }
+    return left;
 }
 
-fn bool_exp(token: &mut Token) {
+fn bool_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
-            addsub_exp(token);
-            relop(token);
-            addsub_exp(token);
-            return;
+            let op1 = addsub_exp(token);
+            let op = relop(token);
+            let op2 = addsub_exp(token);
+            return ASTNode::new_BOOL(op, op1, op2);
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "bool_exp");
             }
-            addsub_exp(token);
-            relop(token);
-            addsub_exp(token);
-            return;
+            let op1 = addsub_exp(token);
+            let op = relop(token);
+            let op2 = addsub_exp(token);
+            return ASTNode::new_BOOL(op, op1, op2);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "bool_exp"),
     }
+    return ASTNode::NULL;
 }
 
-fn opt_arith_exp(token: &mut Token) {
+fn opt_arith_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
-            addsub_exp(token);
-            return;
+            return addsub_exp(token);
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_arith_exp");
             }
-            addsub_exp(token);
-            return;
+            return addsub_exp(token);
         }
-        Token::SEMI => return,
+        Token::SEMI => return ASTNode::NULL,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "opt_arith_exp"),
     }
+    return ASTNode::NULL;
 }
 
-fn addsub_exp(token: &mut Token) {
+fn addsub_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
-            muldiv_exp(token);
-            addsub_no_lr(token);
-            return;
+            let left = muldiv_exp(token);
+            return addsub_no_lr(token, left);
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "addsub_exp");
             }
-            muldiv_exp(token);
-            addsub_no_lr(token);
-            return;
+            let left = muldiv_exp(token);
+            return addsub_no_lr(token, left);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "addsub_exp"),
     }
+    return ASTNode::NULL;
 }
 
-fn addsub_no_lr(token: &mut Token) {
-    match token {
+fn addsub_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
+    match token.clone() {
         Token::ARITH(ar) => {
             if *ar == String::from("+") {
                 match_token(token, Token::ARITH(String::from("+")));
@@ -694,103 +717,116 @@ fn addsub_no_lr(token: &mut Token) {
             } else {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "addsub_no_lr");
             }
-            muldiv_exp(token);
-            addsub_no_lr(token);
-            return;
+            let op2 = muldiv_exp(token);
+            return addsub_no_lr(token, ASTNode::new_ARITH(ar.clone(), left, op2));
         }
-        Token::RPAREN | Token::COMMA | Token::SEMI | Token::BOOL(_) => return,
+        Token::RPAREN | Token::COMMA | Token::SEMI | Token::BOOL(_) => return left,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "addsub_no_lr"),
     }
+    return left;
 }
 
-fn muldiv_exp(token: &mut Token) {
+fn muldiv_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
-            arith_exp(token);
-            muldiv_no_lr(token);
-            return;
+            let left = arith_exp(token);
+            return muldiv_no_lr(token, left);
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "muldiv_exp");
             }
-            arith_exp(token);
-            muldiv_no_lr(token);
-            return;
+            let left = arith_exp(token);
+            return muldiv_no_lr(token, left);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "muldiv_exp"),
     }
+    return ASTNode::NULL;
 }
 
-fn muldiv_no_lr(token: &mut Token) {
-    match token {
+fn muldiv_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
+    match token.clone() {
         Token::ARITH(ar) => {
             if *ar == String::from("*") {
                 match_token(token, Token::ARITH(String::from("*")));
             } else if *ar == String::from("/") {
                 match_token(token, Token::ARITH(String::from("/")));
             } else {
-                return;
+                return left;
             }
-            arith_exp(token);
-            muldiv_no_lr(token);
-            return;
+            let op2 = arith_exp(token);
+            return muldiv_no_lr(token, ASTNode::new_ARITH(ar.clone(), left, op2));
         }
-        Token::RPAREN | Token::COMMA | Token::SEMI | Token::BOOL(_) => return,
+        Token::RPAREN | Token::COMMA | Token::SEMI | Token::BOOL(_) => return left,
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "muldiv_no_lr"),
     }
+    return left;
 }
 
-fn arith_exp(token: &mut Token) {
-    match token {
-        Token::ID(_) => {
-            match match_token(token, Token::ID(String::new())) {
-                Token::ID(mut s) => {
-                    opt_fn_call(token, &mut s);
-                }
-                _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "arith_exp"),
+fn arith_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+    match token.clone() {
+        Token::ID(_) => match match_token(token, Token::ID(String::new())) {
+            Token::ID(mut s) => {
+                return opt_fn_call(token, &mut s);
             }
-            return;
-        }
-        Token::INTCONST(_) => {
+            _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "arith_exp"),
+        },
+        Token::INTCONST(val) => {
             match_token(token, Token::INTCONST(0));
-            return;
+            return ASTNode::new_INTCONST(val);
         }
         Token::LPAREN => {
             match_token(token, Token::LPAREN);
-            addsub_exp(token);
+            let expr = addsub_exp(token);
             match_token(token, Token::RPAREN);
-            return;
+            return expr;
         }
         Token::ARITH(ar) => {
             if *ar != String::from("-") {
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "arith_exp");
             }
             match_token(token, Token::ARITH(String::from("-")));
-            arith_exp(token);
-            return;
+            let expr = arith_exp(token);
+            return ASTNode::new_ARITH(String::from("UMINUS"), expr, ASTNode::NULL);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "arith_exp"),
-    }
+    };
+    return ASTNode::NULL;
 }
 
-fn relop(token: &mut Token) {
-    match token {
-        Token::BOOL(op) => {
-            match op.as_str() {
-                ">" => match_token(token, Token::BOOL(String::from(">"))),
-                ">=" => match_token(token, Token::BOOL(String::from(">="))),
-                "<" => match_token(token, Token::BOOL(String::from("<"))),
-                "<=" => match_token(token, Token::BOOL(String::from("<="))),
-                "!=" => match_token(token, Token::BOOL(String::from("!="))),
-                "==" => match_token(token, Token::BOOL(String::from("=="))),
-                _ => {
-                    error::print_err_rule(*scanner::line.lock().unwrap(), token, "relop");
-                    return;
-                }
-            };
-            return;
-        }
+fn relop(token: &mut Token) -> String {
+    match token.clone() {
+        Token::BOOL(op) => match op.as_str() {
+            ">" => {
+                match_token(token, Token::BOOL(String::from(">")));
+                return op.clone();
+            }
+            ">=" => {
+                match_token(token, Token::BOOL(String::from(">=")));
+                return op.clone();
+            }
+            "<" => {
+                match_token(token, Token::BOOL(String::from("<")));
+                return op.clone();
+            }
+            "<=" => {
+                match_token(token, Token::BOOL(String::from("<=")));
+                return op.clone();
+            }
+            "!=" => {
+                match_token(token, Token::BOOL(String::from("!=")));
+                return op.clone();
+            }
+            "==" => {
+                match_token(token, Token::BOOL(String::from("==")));
+                return op.clone();
+            }
+            _ => {
+                error::print_err_rule(*scanner::line.lock().unwrap(), token, "relop");
+                return String::new();
+            }
+        },
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "relop"),
-    }
+    };
+    return String::new();
 }
