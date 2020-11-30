@@ -46,7 +46,9 @@ pub fn get_token() -> Token {
         return Token::EOF;
     }
 
-    while is_comment(&mut curr) || is_whitespace(&mut curr) {}
+    while is_whitespace(&curr) || is_comment(&curr) {
+        curr = next_char(false);
+    }
 
     match curr {
         '{' => return Token::LBRACE,
@@ -123,6 +125,9 @@ fn match_intconst(curr: &mut char) -> Token {
         }
         curr_int *= 10;
         curr_int += (*curr as i32) - 48;
+    }
+    if curr.is_alphanumeric() {
+        error::print_err_ch(*line.lock().unwrap(), *curr);
     }
     if !is_whitespace(curr) {
         unget_char();
@@ -289,25 +294,35 @@ fn match_id(sofar: &mut String) -> Token {
     return Token::ID(sofar.to_string());
 }
 
-fn is_comment(curr: &mut char) -> bool {
-    if *curr == '/' {
-        *curr = next_char(false);
-        if *curr == '*' {
-            // println!("block comment");
+fn is_comment(wrapper: &char) -> bool {
+    // let print_coms = *crate::print_coms.lock().unwrap();
+    let mut curr = *wrapper;
+    if curr == '/' {
+        curr = next_char(false);
+        if curr == '*' {
             loop {
-                *curr = next_char(false);
-                while *curr == '*' {
-                    *curr = next_char(false);
-                    if *curr == '/' {
+                curr = next_char(false);
+                // if print_coms && curr != '*' {
+                //     print!("{}", curr);
+                // }
+                while curr == '*' {
+                    curr = next_char(false);
+                    if curr == '/' {
                         return true;
                     }
+                    // else if print_coms {
+                    //     print!("{}", curr);
+                    // }
                 }
             }
-        } else if *curr == '/' {
+        } else if curr == '/' {
             // println!("line comment");
-            *curr = next_char(false);
-            while *curr != '\n' {
-                *curr = next_char(false);
+            curr = next_char(false);
+            while curr != '\n' {
+                // if print_coms {
+                //     print!("{}", curr);
+                // }
+                curr = next_char(false);
             }
             return true;
         } else {
@@ -318,16 +333,12 @@ fn is_comment(curr: &mut char) -> bool {
     false
 }
 
-fn is_whitespace(curr: &mut char) -> bool {
-    if *curr == ' ' || *curr == '\n' || *curr == '\r' || *curr == '\t' {
-        *curr = next_char(false);
-        return true;
-    }
-    false
+fn is_whitespace(curr: &char) -> bool {
+    *curr == ' ' || *curr == '\n' || *curr == '\r' || *curr == '\t'
 }
 
 fn unget_char() {
-    let out = contents.lock().unwrap()[FA_offset(-1)];
+    let out = contents.lock().unwrap()[FA_offset(-1) - 1];
     if out == '\n' {
         let mut l = line.lock().unwrap();
         *l = *l - 1;
@@ -362,7 +373,7 @@ fn FA_offset(off: i32) -> usize {
     return (*out - off) as usize;
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Token {
     UNDEF,
     EOF,
