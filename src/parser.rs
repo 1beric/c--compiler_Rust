@@ -11,6 +11,7 @@
 use lazy_static::lazy_static; // 1.4.0
 use std::sync::Mutex;
 
+use crate::asm_gen;
 use crate::ast::ASTNode;
 use crate::error;
 use crate::scanner;
@@ -31,11 +32,11 @@ pub fn parse() {
             .add_function(&mut String::from("println"), &mut 1);
     }
 
-    let mut root = prog(&mut token);
-
-    if *super::print_ast.lock().unwrap() {
-        root.print();
+    if *super::gen_code.lock().unwrap() {
+        println!(".align 2\n.data\n_nl :.asciiz \"\\n\"\n.align 2\n.text\n#println : print out an integer followed by a newline\n_println :\nli $v0, 1\nlw $a0, 0($sp)\nsyscall\nli $v0, 4\nla $a0, _nl\nsyscall\njr $ra\n");
     }
+
+    prog(&mut token);
 
     println!("finished!");
 }
@@ -112,9 +113,9 @@ fn match_token(token: &mut Token, to_match: Token) -> Token {
     }
 }
 
-fn prog<'a>(token: &mut Token) -> ASTNode<'a> {
+fn prog<'a>(token: &mut Token) {
     if *token == Token::EOF {
-        return ASTNode::NULL;
+        return;
     }
 
     match token {
@@ -131,19 +132,15 @@ fn prog<'a>(token: &mut Token) -> ASTNode<'a> {
                 _ => id = String::new(),
             }
 
-            let head = func_var(token, &mut id);
-            let next = prog(token);
-            if head == ASTNode::NULL {
-                return next;
-            }
-            return ASTNode::new_FUNC_LIST(head, next);
+            func_var(token, &mut id);
+            prog(token);
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "prog"),
     };
-    return ASTNode::NULL;
+    return;
 }
 
-fn func_var<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
+fn func_var<'a>(token: &mut Token, id: &mut String) {
     match *token {
         Token::SEMI | Token::COMMA => {
             if *super::chk_decl.lock().unwrap() && symbols.lock().unwrap().global_var_def(id) {
@@ -154,14 +151,18 @@ fn func_var<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
                 symbols.lock().unwrap().add_global(id);
             }
             var_decl(token, true);
-            return ASTNode::NULL;
         }
         Token::LPAREN => {
-            return func_defn(token, id);
+            let mut root = func_defn(token, id);
+            if *super::print_ast.lock().unwrap() {
+                root.print();
+            }
+            if *super::gen_code.lock().unwrap() {
+                asm_gen::generate(&mut root);
+            }
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "func_var"),
     };
-    return ASTNode::NULL;
 }
 
 fn var_decl(token: &mut Token, global: bool) {

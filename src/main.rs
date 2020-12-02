@@ -4,6 +4,7 @@
 use lazy_static::lazy_static; // 1.4.0
 use std::sync::Mutex;
 
+mod asm_gen;
 mod ast;
 mod error;
 mod parser;
