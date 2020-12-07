@@ -16,8 +16,8 @@
  *          This dictates whether or not to print out the abstract syntax
  *          tree that will be created while parsing the file.
  * It is best to run this program using cargo, so an example command-line instruction is:
- *      cargo run ./tests/t1.c --gen_code
- * which will generate MIPS code for the file located at ./tests/t1.c
+ *      cargo run ./tests/t1.c --print_ast
+ * which will generate the AST structure for the file located at ./tests/t1.c
  */
 
 // these are defined to tell the rust compiler that we do not want to use Rust's community style,

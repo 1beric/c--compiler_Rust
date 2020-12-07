@@ -1,3 +1,11 @@
+/*
+ * ./src/symbol_table.rs
+ * Brandon Erickson --- brandonscotterickson@gmail.com
+ * This file implements the scanner for the C-- language. The language is defined at
+ * http://www2.cs.arizona.edu/classes/cs453/fall20/PROJECT/SPEC/cminusminusspec.html#lexical
+ * This file contains the symbol table implementation for C--
+ */
+
 use crate::error;
 
 static mut NULL_ENTRY: Entry = Entry::NULL;

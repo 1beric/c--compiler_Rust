@@ -1,11 +1,9 @@
 /*
- *
- *
- *
- *
- *
- *
- *
+ * ./src/parser.rs
+ * Brandon Erickson --- brandonscotterickson@gmail.com
+ * This file implements the scanner for the C-- language. The language is defined at
+ * http://www2.cs.arizona.edu/classes/cs453/fall20/PROJECT/SPEC/cminusminusspec.html#lexical
+ * This file contains the logic for parsing the Tokens defined in the struct Token for rules in C--
  */
 
 use lazy_static::lazy_static; // 1.4.0
@@ -21,10 +19,13 @@ lazy_static! {
     pub static ref symbols: Mutex<SymbolTable> = Mutex::new(SymbolTable::init_global());
 }
 
+/*
+ * this function parses the input to check for rules defined in C--
+ */
 pub fn parse() {
     let mut token = scanner::get_token();
 
-    if *super::chk_decl.lock().unwrap() {
+    if *super::chk_decl.lock().unwrap() { // must allow println to be called
         symbols
             .lock()
             .unwrap()
@@ -32,10 +33,12 @@ pub fn parse() {
     }
 
     prog(&mut token);
-
-    println!("finished!");
 }
 
+
+/*
+ * this function prints the tokens from scanner
+ */
 pub fn print_tokens() {
     scanner::reset_file();
     loop {
@@ -47,6 +50,8 @@ pub fn print_tokens() {
     scanner::reset_file();
 }
 
+// this prints a token using its value
+// it also returns whether to continue or not
 fn print_token(token: &Token) -> bool {
     match token {
         Token::UNDEF => {
@@ -62,12 +67,13 @@ fn print_token(token: &Token) -> bool {
     return true;
 }
 
+// this funtion matches a token with a desired token
 fn match_token(token: &mut Token, to_match: Token) -> Token {
     // print_token(&to_match);
     // print_token(token);
     // println!();
     match token {
-        Token::ID(_) => {
+        Token::ID(_) => { // in order to ignore the id value, we need to just match the type
             match to_match {
                 Token::ID(_) => {
                     // valid
@@ -83,7 +89,7 @@ fn match_token(token: &mut Token, to_match: Token) -> Token {
         }
         Token::INTCONST(_) => {
             match to_match {
-                Token::INTCONST(_) => {
+                Token::INTCONST(_) => { // in order to ignore the int value, we need to just match the type
                     // valid
                     let out = token.clone();
                     *token = scanner::get_token();
@@ -96,7 +102,7 @@ fn match_token(token: &mut Token, to_match: Token) -> Token {
             }
         }
         _ => {
-            if *token == to_match {
+            if *token == to_match { // we can then use PartialEq to check the rest
                 // valid
                 let out = token.clone();
                 *token = scanner::get_token();
@@ -108,9 +114,10 @@ fn match_token(token: &mut Token, to_match: Token) -> Token {
     }
 }
 
+// this checks the rule for prog
 fn prog(token: &mut Token) {
     if *token == Token::EOF {
-        return;
+        return; // EOF is valid here
     }
 
     match token {
@@ -121,7 +128,7 @@ fn prog(token: &mut Token) {
 
             mtype(token);
 
-            let mut id: String;
+            let mut id: String; // need to grab the string from id
             match match_token(token, Token::ID(String::new())) {
                 Token::ID(s) => id = s,
                 _ => id = String::new(),
@@ -135,6 +142,7 @@ fn prog(token: &mut Token) {
     return;
 }
 
+// this checks the rule for func_var
 fn func_var(token: &mut Token, id: &mut String) {
     match *token {
         Token::SEMI | Token::COMMA => {
@@ -142,7 +150,7 @@ fn func_var(token: &mut Token, id: &mut String) {
                 eprintln!("cannot redefine global var: {}", id);
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "func_var");
             }
-            {
+            { // need a new block to lock symbols in
                 symbols.lock().unwrap().add_global(id);
             }
             var_decl(token, true);
@@ -157,6 +165,7 @@ fn func_var(token: &mut Token, id: &mut String) {
     };
 }
 
+// this checks the rule for var_decl
 fn var_decl(token: &mut Token, global: bool) {
     match *token {
         Token::SEMI => {
@@ -179,7 +188,7 @@ fn var_decl(token: &mut Token, global: bool) {
                                 "var_decl",
                             );
                         }
-                        {
+                        { // need a new block to lock symbols in
                             symbols.lock().unwrap().add_global(&mut s);
                         }
                     } else {
@@ -194,7 +203,7 @@ fn var_decl(token: &mut Token, global: bool) {
                                 "var_decl",
                             );
                         }
-                        {
+                        { // need a new block to lock symbols in
                             symbols.lock().unwrap().add_body_var(&mut s);
                         }
                     }
@@ -208,10 +217,12 @@ fn var_decl(token: &mut Token, global: bool) {
     }
 }
 
+// this checks the rule for mtype
 fn mtype(token: &mut Token) {
     match_token(token, Token::KW(String::from("int")));
 }
 
+// this checks the rule for func_defn
 fn func_defn(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::LPAREN => {
@@ -227,7 +238,7 @@ fn func_defn(token: &mut Token, id: &mut String) -> ASTNode {
                 eprintln!("cannot redefine function: {}", id);
                 error::print_err_rule(*scanner::line.lock().unwrap(), token, "func_defn");
             }
-            {
+            { // need a new block to lock symbols in
                 symbols
                     .lock()
                     .unwrap()
@@ -248,6 +259,7 @@ fn func_defn(token: &mut Token, id: &mut String) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for opt_formals
 fn opt_formals(token: &mut Token, params: &mut Vec<String>) {
     match token {
         Token::KW(kw) => {
@@ -267,6 +279,7 @@ fn opt_formals(token: &mut Token, params: &mut Vec<String>) {
     }
 }
 
+// this checks the rule for formals
 fn formals(token: &mut Token, params: &mut Vec<String>) {
     match *token {
         Token::COMMA => {
@@ -284,6 +297,7 @@ fn formals(token: &mut Token, params: &mut Vec<String>) {
     }
 }
 
+// this checks the rule for opt_var_decls
 fn opt_var_decls(token: &mut Token) {
     match token {
         Token::KW(kw) => {
@@ -309,7 +323,7 @@ fn opt_var_decls(token: &mut Token) {
                             "opt_var_decls",
                         );
                     }
-                    {
+                    { // need a new block to lock symbols in
                         symbols.lock().unwrap().add_global(&mut s);
                     }
                 }
@@ -324,6 +338,7 @@ fn opt_var_decls(token: &mut Token) {
     }
 }
 
+// this checks the rule for opt_stmt_list
 fn opt_stmt_list(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::LBRACE | Token::SEMI => {
@@ -354,6 +369,7 @@ fn opt_stmt_list(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for stmt
 fn stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) => match match_token(token, Token::ID(String::new())) {
@@ -390,6 +406,7 @@ fn stmt(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for fn_or_assg
 fn fn_or_assg(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::ASSG => {
@@ -413,6 +430,7 @@ fn fn_or_assg(token: &mut Token, id: &mut String) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for if_stmt
 fn if_stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
@@ -432,6 +450,7 @@ fn if_stmt(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for opt_else
 fn opt_else(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
@@ -453,6 +472,7 @@ fn opt_else(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for while_stmt
 fn while_stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
@@ -471,6 +491,7 @@ fn while_stmt(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for return_stmt
 fn return_stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
@@ -487,6 +508,7 @@ fn return_stmt(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for assg_stmt
 fn assg_stmt(token: &mut Token, id: String) -> ASTNode {
     match *token {
         Token::ASSG => {
@@ -498,6 +520,7 @@ fn assg_stmt(token: &mut Token, id: String) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for opt_fn_call
 fn opt_fn_call(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::LPAREN => {
@@ -511,6 +534,7 @@ fn opt_fn_call(token: &mut Token, id: &mut String) -> ASTNode {
     return ASTNode::new_ID(id.clone());
 }
 
+// this checks the rule for fn_call
 fn fn_call(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::LPAREN => {
@@ -534,6 +558,7 @@ fn fn_call(token: &mut Token, id: &mut String) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for opt_expr_list
 fn opt_expr_list(token: &mut Token, nargs: &mut u32) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
@@ -557,6 +582,7 @@ fn opt_expr_list(token: &mut Token, nargs: &mut u32) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for expr_list
 fn expr_list(token: &mut Token, nargs: &mut u32) -> ASTNode {
     match *token {
         Token::COMMA => {
@@ -572,6 +598,7 @@ fn expr_list(token: &mut Token, nargs: &mut u32) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for or_exp
 fn or_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
@@ -590,6 +617,7 @@ fn or_exp(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for or_no_lr
 fn or_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token {
         Token::BOOL(bl) => {
@@ -606,6 +634,7 @@ fn or_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     return left;
 }
 
+// this checks the rule for and_exp
 fn and_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
@@ -624,6 +653,7 @@ fn and_exp(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for and_no_lr
 fn and_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token {
         Token::BOOL(bl) => {
@@ -643,6 +673,7 @@ fn and_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     return left;
 }
 
+// this checks the rule for bool_exp
 fn bool_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
@@ -665,6 +696,7 @@ fn bool_exp(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for opt_arith_exp
 fn opt_arith_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
@@ -682,6 +714,7 @@ fn opt_arith_exp(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for addsub_exp
 fn addsub_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
@@ -700,6 +733,7 @@ fn addsub_exp(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for addsub_no_lr
 fn addsub_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token.clone() {
         Token::ARITH(ar) => {
@@ -719,6 +753,7 @@ fn addsub_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     return left;
 }
 
+// this checks the rule for muldiv_exp
 fn muldiv_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
@@ -737,6 +772,7 @@ fn muldiv_exp(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for muldiv_no_lr
 fn muldiv_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token.clone() {
         Token::ARITH(ar) => {
@@ -756,6 +792,7 @@ fn muldiv_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     return left;
 }
 
+// this checks the rule for arith_exp
 fn arith_exp(token: &mut Token) -> ASTNode {
     match token.clone() {
         Token::ID(_) => match match_token(token, Token::ID(String::new())) {
@@ -787,6 +824,7 @@ fn arith_exp(token: &mut Token) -> ASTNode {
     return ASTNode::NULL;
 }
 
+// this checks the rule for relop
 fn relop(token: &mut Token) -> String {
     match token.clone() {
         Token::BOOL(op) => match op.as_str() {
