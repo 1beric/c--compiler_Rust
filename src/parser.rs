@@ -11,7 +11,6 @@
 use lazy_static::lazy_static; // 1.4.0
 use std::sync::Mutex;
 
-use crate::asm_gen;
 use crate::ast::ASTNode;
 use crate::error;
 use crate::scanner;
@@ -19,7 +18,7 @@ use crate::scanner::Token;
 use crate::symbol_table::SymbolTable;
 
 lazy_static! {
-    static ref symbols: Mutex<SymbolTable<'static>> = Mutex::new(SymbolTable::init_global());
+    pub static ref symbols: Mutex<SymbolTable> = Mutex::new(SymbolTable::init_global());
 }
 
 pub fn parse() {
@@ -30,10 +29,6 @@ pub fn parse() {
             .lock()
             .unwrap()
             .add_function(&mut String::from("println"), &mut 1);
-    }
-
-    if *super::gen_code.lock().unwrap() {
-        println!(".align 2\n.data\n_nl :.asciiz \"\\n\"\n.align 2\n.text\n#println : print out an integer followed by a newline\n_println :\nli $v0, 1\nlw $a0, 0($sp)\nsyscall\nli $v0, 4\nla $a0, _nl\nsyscall\njr $ra\n");
     }
 
     prog(&mut token);
@@ -113,7 +108,7 @@ fn match_token(token: &mut Token, to_match: Token) -> Token {
     }
 }
 
-fn prog<'a>(token: &mut Token) {
+fn prog(token: &mut Token) {
     if *token == Token::EOF {
         return;
     }
@@ -140,7 +135,7 @@ fn prog<'a>(token: &mut Token) {
     return;
 }
 
-fn func_var<'a>(token: &mut Token, id: &mut String) {
+fn func_var(token: &mut Token, id: &mut String) {
     match *token {
         Token::SEMI | Token::COMMA => {
             if *super::chk_decl.lock().unwrap() && symbols.lock().unwrap().global_var_def(id) {
@@ -156,9 +151,6 @@ fn func_var<'a>(token: &mut Token, id: &mut String) {
             let mut root = func_defn(token, id);
             if *super::print_ast.lock().unwrap() {
                 root.print();
-            }
-            if *super::gen_code.lock().unwrap() {
-                asm_gen::generate(&mut root);
             }
         }
         _ => error::print_err_rule(*scanner::line.lock().unwrap(), token, "func_var"),
@@ -220,7 +212,7 @@ fn mtype(token: &mut Token) {
     match_token(token, Token::KW(String::from("int")));
 }
 
-fn func_defn<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
+fn func_defn(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::LPAREN => {
             match_token(token, Token::LPAREN);
@@ -332,7 +324,7 @@ fn opt_var_decls(token: &mut Token) {
     }
 }
 
-fn opt_stmt_list<'a>(token: &mut Token) -> ASTNode<'a> {
+fn opt_stmt_list(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::LBRACE | Token::SEMI => {
             let head = stmt(token);
@@ -362,7 +354,7 @@ fn opt_stmt_list<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn stmt<'a>(token: &mut Token) -> ASTNode<'a> {
+fn stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) => match match_token(token, Token::ID(String::new())) {
             Token::ID(mut s) => {
@@ -398,7 +390,7 @@ fn stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn fn_or_assg<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
+fn fn_or_assg(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::ASSG => {
             {
@@ -421,7 +413,7 @@ fn fn_or_assg<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn if_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
+fn if_stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
             if *kw != String::from("if") {
@@ -440,7 +432,7 @@ fn if_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn opt_else<'a>(token: &mut Token) -> ASTNode<'a> {
+fn opt_else(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
             if *kw == String::from("if")
@@ -461,7 +453,7 @@ fn opt_else<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn while_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
+fn while_stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
             if *kw != String::from("while") {
@@ -479,7 +471,7 @@ fn while_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn return_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
+fn return_stmt(token: &mut Token) -> ASTNode {
     match token {
         Token::KW(kw) => {
             if *kw != String::from("return") {
@@ -495,7 +487,7 @@ fn return_stmt<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn assg_stmt<'a>(token: &mut Token, id: String) -> ASTNode<'a> {
+fn assg_stmt(token: &mut Token, id: String) -> ASTNode {
     match *token {
         Token::ASSG => {
             match_token(token, Token::ASSG);
@@ -506,7 +498,7 @@ fn assg_stmt<'a>(token: &mut Token, id: String) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn opt_fn_call<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
+fn opt_fn_call(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::LPAREN => {
             return fn_call(token, id);
@@ -519,7 +511,7 @@ fn opt_fn_call<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     return ASTNode::new_ID(id.clone());
 }
 
-fn fn_call<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
+fn fn_call(token: &mut Token, id: &mut String) -> ASTNode {
     match *token {
         Token::LPAREN => {
             match_token(token, Token::LPAREN);
@@ -542,7 +534,7 @@ fn fn_call<'a>(token: &mut Token, id: &mut String) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn opt_expr_list<'a>(token: &mut Token, nargs: &mut u32) -> ASTNode<'a> {
+fn opt_expr_list(token: &mut Token, nargs: &mut u32) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
             let head = addsub_exp(token);
@@ -565,7 +557,7 @@ fn opt_expr_list<'a>(token: &mut Token, nargs: &mut u32) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn expr_list<'a>(token: &mut Token, nargs: &mut u32) -> ASTNode<'a> {
+fn expr_list(token: &mut Token, nargs: &mut u32) -> ASTNode {
     match *token {
         Token::COMMA => {
             match_token(token, Token::COMMA);
@@ -580,7 +572,7 @@ fn expr_list<'a>(token: &mut Token, nargs: &mut u32) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn or_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+fn or_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
             let left = and_exp(token);
@@ -598,7 +590,7 @@ fn or_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn or_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
+fn or_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token {
         Token::BOOL(bl) => {
             if *bl != String::from("||") {
@@ -614,7 +606,7 @@ fn or_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
     return left;
 }
 
-fn and_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+fn and_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
             let bool_expr = bool_exp(token);
@@ -632,7 +624,7 @@ fn and_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn and_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
+fn and_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token {
         Token::BOOL(bl) => {
             if *bl != String::from("&&") {
@@ -651,7 +643,7 @@ fn and_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
     return left;
 }
 
-fn bool_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+fn bool_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
             let op1 = addsub_exp(token);
@@ -673,7 +665,7 @@ fn bool_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn opt_arith_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+fn opt_arith_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
             return addsub_exp(token);
@@ -690,7 +682,7 @@ fn opt_arith_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn addsub_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+fn addsub_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
             let left = muldiv_exp(token);
@@ -708,7 +700,7 @@ fn addsub_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn addsub_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
+fn addsub_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token.clone() {
         Token::ARITH(ar) => {
             if *ar == String::from("+") {
@@ -727,7 +719,7 @@ fn addsub_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
     return left;
 }
 
-fn muldiv_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+fn muldiv_exp(token: &mut Token) -> ASTNode {
     match token {
         Token::ID(_) | Token::INTCONST(_) | Token::LPAREN => {
             let left = arith_exp(token);
@@ -745,7 +737,7 @@ fn muldiv_exp<'a>(token: &mut Token) -> ASTNode<'a> {
     return ASTNode::NULL;
 }
 
-fn muldiv_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
+fn muldiv_no_lr(token: &mut Token, left: ASTNode) -> ASTNode {
     match token.clone() {
         Token::ARITH(ar) => {
             if *ar == String::from("*") {
@@ -764,7 +756,7 @@ fn muldiv_no_lr<'a>(token: &mut Token, left: ASTNode<'a>) -> ASTNode<'a> {
     return left;
 }
 
-fn arith_exp<'a>(token: &mut Token) -> ASTNode<'a> {
+fn arith_exp(token: &mut Token) -> ASTNode {
     match token.clone() {
         Token::ID(_) => match match_token(token, Token::ID(String::new())) {
             Token::ID(mut s) => {
